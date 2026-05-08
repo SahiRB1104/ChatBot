@@ -1,0 +1,132 @@
+<!-- Open this file in browser. Make sure app.py is running on port 5000 -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Education AI Assistant</title>
+  <style>
+    :root{--max:680px;--accent:#2b6cb0;--muted:#666}
+    body{font-family:Segoe UI,Roboto,Arial,sans-serif;background:#f7f9fb;margin:0;padding:40px;display:flex;justify-content:center}
+    .wrap{background:#fff;max-width:var(--max);width:100%;padding:22px;border-radius:8px;box-shadow:0 6px 24px rgba(12,25,40,.06)}
+    h1{margin:0 0 12px;font-size:20px}
+    .tabs{display:flex;gap:8px;margin-bottom:12px}
+    .tab{padding:8px 14px;border-radius:6px;cursor:pointer;background:#f1f5f9;color:#243;}
+    .tab.active{background:var(--accent);color:#fff}
+    .panel{display:none}
+    .panel.active{display:block}
+    textarea{width:100%;min-height:88px;padding:10px;border:1px solid #e6eef6;border-radius:6px;font-size:14px}
+    .row{display:flex;gap:8px;margin-top:8px}
+    button{background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+    .results{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .card{background:#fbfdff;padding:12px;border-radius:6px;border:1px solid #eef6ff}
+    .spinner{display:inline-block;width:18px;height:18px;border:3px solid #e6eef6;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle}
+    .hidden{display:none}
+    .batch-items{display:flex;flex-direction:column;gap:8px}
+    .batch-item{display:flex;gap:8px;align-items:flex-start}
+    .remove-btn{background:#eee;color:#333;padding:6px 8px;border-radius:6px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Education AI Assistant</h1>
+    <div class="tabs">
+      <div class="tab active" id="tab-single" onclick="switchTab('single')">Single Question</div>
+      <div class="tab" id="tab-batch" onclick="switchTab('batch')">Batch Questions</div>
+    </div>
+
+    <div id="panel-single" class="panel active">
+      <textarea id="single-input" placeholder="Ask a question about education..."></textarea>
+      <div class="row" style="margin-top:8px;align-items:center">
+        <button onclick="submitSingle()">Ask</button>
+        <div id="single-spinner" class="hidden" style="margin-left:10px"><span class="spinner"></span></div>
+      </div>
+      <div id="single-result" class="results"></div>
+    </div>
+
+    <div id="panel-batch" class="panel">
+      <div class="batch-items" id="batch-list"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button onclick="addItem()">+ Add Question</button>
+        <button onclick="submitBatch()">Ask All</button>
+        <div id="batch-spinner" class="hidden" style="margin-left:10px"><span class="spinner"></span></div>
+      </div>
+      <div id="batch-results" class="results"></div>
+    </div>
+  </div>
+
+  <script>
+    const BASE = "http://localhost:5000";
+
+    // Toggle active tab and show correct panel
+    function switchTab(name){
+      document.getElementById('tab-single').classList.toggle('active', name==='single');
+      document.getElementById('tab-batch').classList.toggle('active', name==='batch');
+      document.getElementById('panel-single').classList.toggle('active', name==='single');
+      document.getElementById('panel-batch').classList.toggle('active', name==='batch');
+    }
+
+    // Escape minimal HTML to prevent XSS in displayed responses
+    function escHtml(s){
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Read single textarea, POST to /ask, show spinner and display response
+    async function submitSingle(){
+      const input = document.getElementById('single-input').value.trim();
+      const resBox = document.getElementById('single-result');
+      resBox.innerHTML = '';
+      if(!input){ resBox.innerHTML = '<div class="muted">Please enter a question.</div>'; return }
+      const spinner = document.getElementById('single-spinner'); spinner.classList.remove('hidden');
+      try{
+        const resp = await fetch(BASE + '/ask', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userInput: input})});
+        if(!resp.ok) throw new Error('Backend error');
+        const data = await resp.json();
+        const html = `<div class="card"><strong>Q:</strong> ${escHtml(input)}<br/><strong>A:</strong> ${escHtml(data.response)}</div>`;
+        resBox.innerHTML = html;
+      }catch(e){
+        resBox.innerHTML = `<div class="muted">Error: ${escHtml(e.message || e)}</div>`;
+      }finally{ spinner.classList.add('hidden') }
+    }
+
+    // Collect non-empty batch textareas, POST to /ask-batch, show spinner and render Q+A cards
+    async function submitBatch(){
+      const items = Array.from(document.querySelectorAll('.batch-item textarea'));
+      const values = items.map(t=>t.value.trim()).filter(v=>v.length>0);
+      const out = document.getElementById('batch-results'); out.innerHTML='';
+      if(values.length===0){ out.innerHTML='<div class="muted">Please enter at least one question.</div>'; return }
+      const spinner = document.getElementById('batch-spinner'); spinner.classList.remove('hidden');
+      try{
+        const resp = await fetch(BASE + '/ask-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userInputs: values})});
+        if(!resp.ok) throw new Error('Backend error');
+        const data = await resp.json();
+        const responses = data.responses || [];
+        out.innerHTML = responses.map((r,i)=>`<div class="card"><strong>${i+1}.</strong> Q: ${escHtml(values[i])}<br/><strong>A:</strong> ${escHtml(r)}</div>`).join('');
+      }catch(e){
+        out.innerHTML = `<div class="muted">Error: ${escHtml(e.message || e)}</div>`;
+      }finally{ spinner.classList.add('hidden') }
+    }
+
+    // Append a new textarea row to batch list
+    function addItem(){
+      const list = document.getElementById('batch-list');
+      const idx = list.children.length + 1;
+      const div = document.createElement('div'); div.className='batch-item';
+      div.innerHTML = `<textarea placeholder="Question ${idx}"></textarea><button class="remove-btn" onclick="removeItem(this)">✕</button>`;
+      list.appendChild(div);
+    }
+
+    // Remove the parent batch-item row if more than 1 exists
+    function removeItem(btn){
+      const list = document.getElementById('batch-list');
+      if(list.children.length <= 1) return;
+      btn.parentElement.remove();
+    }
+
+    // Initialize with two batch rows
+    (function(){ addItem(); addItem(); })();
+  </script>
+</body>
+</html>
